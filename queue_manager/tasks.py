@@ -1,8 +1,12 @@
 from celery import shared_task
 from django.utils import timezone
 from django.db import transaction
+import logging
+from restaurants.models import Restaurant
 from .models import QueueEntry, TableAssignment
 from .services import recalculate_wait_times
+
+logger = logging.getLogger(__name__)
 
 
 # =========================================================
@@ -10,54 +14,71 @@ from .services import recalculate_wait_times
 # =========================================================
 @shared_task
 def check_no_shows():
-    now = timezone.now()
+    try:
+        now = timezone.now()
 
-    expired_entries = QueueEntry.objects.filter(
-        status='called',
-        expires_at__isnull=False,
-        expires_at__lt=now
-    ).select_related('restaurant')
+        expired_entries = QueueEntry.objects.filter(
+            status='called',
+            expires_at__isnull=False,
+            expires_at__lt=now
+        ).select_related('restaurant')
 
-    processed = 0
-    affected_restaurants = set()
+        processed = 0
+        affected_restaurants = set()
 
-    for entry in expired_entries:
-        with transaction.atomic():
-            entry = QueueEntry.objects.select_for_update().get(id=entry.id)
+        logger.info(f"Starting no-show check. Found {expired_entries.count()} expired entries.")
 
-            # Skip if already handled
-            if entry.status != 'called':
-                continue
+        for entry in expired_entries:
+            with transaction.atomic():
+                entry = QueueEntry.objects.select_for_update().get(id=entry.id)
 
-            # 1️⃣ Mark no-show
-            entry.status = 'no_show'
-            entry.save(update_fields=['status'])
+                # Skip if already handled
+                if entry.status != 'called':
+                    continue
 
-            # 2️⃣ Free table (lock assignment too)
-            assignment = TableAssignment.objects.select_for_update().filter(
-                queue_entry=entry,
-                is_active=True
-            ).select_related('table_unit').first()
+                # 1️⃣ Mark no-show
+                entry.status = 'no_show'
+                entry.save(update_fields=['status'])
 
-            if assignment:
-                assignment.cleared_at = now
-                assignment.is_active = False
-                assignment.save(update_fields=['cleared_at', 'is_active'])
+                # 2️⃣ Free table (lock assignment too)
+                assignment = TableAssignment.objects.select_for_update().filter(
+                    queue_entry=entry,
+                    is_active=True
+                ).select_related('table_unit').first()
 
-                table = assignment.table_unit
-                table.status = 'available'
-                table.save(update_fields=['status'])
+                if assignment:
+                    assignment.cleared_at = now
+                    assignment.is_active = False
+                    assignment.save(update_fields=['cleared_at', 'is_active'])
 
-            affected_restaurants.add(entry.restaurant_id)
-            processed += 1
+                    table = assignment.table_unit
+                    table.status = 'available'
+                    table.save(update_fields=['status'])
 
-    # 3️⃣ Recalculate once per restaurant (efficient)
-    for restaurant_id in affected_restaurants:
-        recalculate_wait_times(
-            QueueEntry.objects.filter(restaurant_id=restaurant_id).first().restaurant
-        )
+                affected_restaurants.add(entry.restaurant_id)
+                processed += 1
 
-    return f"Processed {processed} no-show entries"
+                logger.debug(f"Marked no-show: {entry.token_number} at {entry.restaurant.name}")
+
+                # 3️⃣ Send no-show notification SMS
+                try:
+                    from notifications.services import notify_no_show
+                    notify_no_show(entry.id)
+                except Exception as sms_error:
+                    logger.warning(f"Failed to send no-show SMS: {str(sms_error)}")
+
+        # 3️⃣ Recalculate once per restaurant (efficient)
+        for restaurant_id in affected_restaurants:
+            recalculate_wait_times(Restaurant.objects.get(id=restaurant_id))
+
+        result = f"Processed {processed} no-show entries"
+        logger.info(result)
+        return result
+
+    except Exception as e:
+        error_msg = f"Error in check_no_shows task: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return error_msg
 
 
 # =========================================================
@@ -65,22 +86,17 @@ def check_no_shows():
 # =========================================================
 @shared_task
 def call_next_customer(queue_entry_id):
-    from datetime import timedelta
+    from .services import call_customer_service
 
     try:
-        entry = QueueEntry.objects.select_related('restaurant').get(
-            id=queue_entry_id,
-            status='waiting'
-        )
-    except QueueEntry.DoesNotExist:
-        return "Entry not found or not waiting"
-
-    now = timezone.now()
-
-    entry.status = 'called'
-    entry.called_at = now
-    entry.expires_at = now + timedelta(minutes=10)
-
-    entry.save(update_fields=['status', 'called_at', 'expires_at'])
-
-    return f"Called {entry.customer.name} - Token {entry.token_number}"
+        result = call_customer_service(queue_entry_id)
+        logger.info(f"Called {result['customer']} - Token {result['token']}")
+        return f"Called {result['customer']} - Token {result['token']}"
+    except ValueError as exc:
+        error_msg = f"Business logic error calling customer {queue_entry_id}: {str(exc)}"
+        logger.warning(error_msg)
+        return error_msg
+    except Exception as exc:
+        error_msg = f"Unexpected error calling customer {queue_entry_id}: {str(exc)}"
+        logger.error(error_msg, exc_info=True)
+        return error_msg

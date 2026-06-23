@@ -3,9 +3,10 @@ from .views import (
     JoinQueueView,
     QueueStatusView,
     RestaurantQueueView,
+    StaffDashboardView,
     ClearTableView,
     LeaveQueueView,
-    CallCustomerView  # ✅ ADD THIS
+    CallCustomerView
 )
 
 urlpatterns = [
@@ -17,6 +18,9 @@ urlpatterns = [
 
     # Staff views queue
     path('restaurant-queue/<int:restaurant_id>/', RestaurantQueueView.as_view(), name='restaurant-queue'),
+
+    # Staff dashboard data
+    path('staff-dashboard/<int:restaurant_id>/', StaffDashboardView.as_view(), name='staff-dashboard'),
 
     # Staff clears table
     path('clear-table/', ClearTableView.as_view(), name='clear-table'),

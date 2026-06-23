@@ -1,10 +1,19 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .serializers import JoinQueueSerializer, QueueEntrySerializer
-from .services import join_queue_service, clear_table_service, leave_queue_service
-from .models import QueueEntry
-from .tasks import call_next_customer
+from rest_framework.permissions import IsAdminUser
+from .serializers import (
+    JoinQueueSerializer,
+    QueueEntrySerializer,
+    TableAssignmentSerializer,
+)
+from .services import (
+    call_customer_service,
+    clear_table_service,
+    join_queue_service,
+    leave_queue_service,
+)
+from .models import QueueEntry, TableAssignment
 
 
 
@@ -27,19 +36,9 @@ class JoinQueueView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # 2️⃣ Get restaurant_id
-        # Prefer body over query params for POST (more consistent)
-        restaurant_id = request.data.get('restaurant_id')
-        if not restaurant_id:
-            return Response(
-                {"error": "restaurant_id is required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # 3️⃣ Call business logic (service layer)
+        # 2️⃣ Call business logic (service layer)
         try:
             data = serializer.validated_data
-            data['restaurant_id'] = restaurant_id
 
             result = join_queue_service(data)
 
@@ -88,7 +87,8 @@ class QueueStatusView(APIView):
                 restaurant=entry.restaurant,
                 status='waiting',
                 queue_type=entry.queue_type,
-                joined_at__lt=entry.joined_at
+                joined_at__lt=entry.joined_at,
+                expires_at__isnull=True
             ).count()
             # position = people ahead + 1
             # 0 people ahead → position 1 (next to be seated)
@@ -112,6 +112,7 @@ class QueueStatusView(APIView):
 # Staff sees current waiting queue
 # =========================================================
 class RestaurantQueueView(APIView):
+    permission_classes = [IsAdminUser]
 
     def get(self, request, restaurant_id):
         # 1️⃣ Fetch only waiting customers
@@ -128,9 +129,33 @@ class RestaurantQueueView(APIView):
 
         # 3️⃣ Return list
         return Response(serializer.data)
+
+
+class StaffDashboardView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, restaurant_id):
+        waiting_entries = QueueEntry.objects.filter(
+            restaurant_id=restaurant_id,
+            status='waiting'
+        ).select_related('customer').order_by('joined_at')
+
+        active_assignments = TableAssignment.objects.filter(
+            table_unit__restaurant_id=restaurant_id,
+            is_active=True
+        ).select_related(
+            'queue_entry__customer',
+            'table_unit',
+        ).order_by('assigned_at')
+
+        return Response({
+            'waiting_queue': QueueEntrySerializer(waiting_entries, many=True).data,
+            'active_tables': TableAssignmentSerializer(active_assignments, many=True).data,
+        })
     
 
 class ClearTableView(APIView):
+    permission_classes = [IsAdminUser]
     # Handles POST /api/queue/clear-table/
     # Called by staff when customer finishes eating
 
@@ -201,6 +226,7 @@ class LeaveQueueView(APIView):
 
 
 class CallCustomerView(APIView):
+    permission_classes = [IsAdminUser]
     # Handles POST /api/queue/call-customer/
     # Staff taps "Call" button
 
@@ -215,17 +241,18 @@ class CallCustomerView(APIView):
             )
 
         try:
-            # 2️⃣ Trigger Celery task asynchronously
-            call_next_customer.delay(queue_entry_id)
-
-            # WHY:
-            # → Non-blocking
-            # → Scalable
-            # → Future-ready (SMS, notifications)
+            # 2️⃣ Assign a real table and call the customer
+            result = call_customer_service(queue_entry_id)
 
             return Response(
-                {"message": "Customer is being called"},
+                result,
                 status=status.HTTP_200_OK
+            )
+
+        except ValueError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         except Exception:

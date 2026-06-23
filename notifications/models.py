@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.validators import MinValueValidator, MaxValueValidator
 from queue_manager.models import QueueEntry
 
 
@@ -61,28 +62,16 @@ class Feedback(models.Model):
     # Can't submit feedback twice for same visit
 
     overall_rating = models.IntegerField(
-        validators=[
-            __import__('django.core.validators', fromlist=['MinValueValidator']).MinValueValidator(1),
-            __import__('django.core.validators', fromlist=['MaxValueValidator']).MaxValueValidator(5)
-        ]
+        validators=[MinValueValidator(1), MaxValueValidator(5)]
     )
     wait_satisfaction = models.IntegerField(
-        validators=[
-            __import__('django.core.validators', fromlist=['MinValueValidator']).MinValueValidator(1),
-            __import__('django.core.validators', fromlist=['MaxValueValidator']).MaxValueValidator(5)
-        ]
+        validators=[MinValueValidator(1), MaxValueValidator(5)]
     )
     food_rating = models.IntegerField(
-        validators=[
-            __import__('django.core.validators', fromlist=['MinValueValidator']).MinValueValidator(1),
-            __import__('django.core.validators', fromlist=['MaxValueValidator']).MaxValueValidator(5)
-        ]
+        validators=[MinValueValidator(1), MaxValueValidator(5)]
     )
     service_rating = models.IntegerField(
-        validators=[
-            __import__('django.core.validators', fromlist=['MinValueValidator']).MinValueValidator(1),
-            __import__('django.core.validators', fromlist=['MaxValueValidator']).MaxValueValidator(5)
-        ]
+        validators=[MinValueValidator(1), MaxValueValidator(5)]
     )
     would_recommend = models.BooleanField(null=True)
     comment = models.TextField(blank=True)

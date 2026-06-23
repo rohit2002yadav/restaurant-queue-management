@@ -1,7 +1,11 @@
 from django.utils import timezone
 from django.db import transaction
+from django.db.models import Case, IntegerField, Value, When
+import logging
 from .models import Customer, QueueEntry, TableAssignment
 from restaurants.models import Restaurant, TableUnit
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -42,13 +46,13 @@ def find_best_table(restaurant, party_size):
         restaurant=restaurant,
         capacity__gte=party_size,
         status='available'
-    ).order_by('capacity').first()
+    ).select_for_update().order_by('capacity').first()
 
 
 # =========================================================
 # CALCULATE WAIT TIME (IMPROVED LOGIC)
 # =========================================================
-def calculate_wait_time(restaurant, party_size):
+def calculate_wait_time(restaurant, party_size, queue_entry=None):
 
     suitable_tables = TableUnit.objects.filter(
         restaurant=restaurant,
@@ -67,13 +71,17 @@ def calculate_wait_time(restaurant, party_size):
     else:
         queue_type = 'large'
 
-    # Count people ahead (excluding expired)
-    people_ahead = QueueEntry.objects.filter(
+    waiting_entries = QueueEntry.objects.filter(
         restaurant=restaurant,
         status='waiting',
         queue_type=queue_type,
         expires_at__isnull=True
-    ).count()
+    )
+
+    if queue_entry:
+        waiting_entries = waiting_entries.filter(joined_at__lt=queue_entry.joined_at)
+
+    people_ahead = waiting_entries.count()
 
     avg_time = restaurant.avg_meal_duration_mins
 
@@ -108,11 +116,39 @@ def join_queue_service(data):
     except Restaurant.DoesNotExist:
         raise ValueError("Restaurant not found")
 
+    if not restaurant.is_active:
+        raise ValueError("Restaurant is not accepting queue entries")
+
+    active_queue_count = QueueEntry.objects.filter(
+        restaurant=restaurant,
+        status__in=['waiting', 'called']
+    ).count()
+
+    if active_queue_count >= restaurant.max_queue_size:
+        raise ValueError("Queue is currently full")
+
+    if not TableUnit.objects.filter(
+        restaurant=restaurant,
+        capacity__gte=party_size,
+        status__in=['available', 'occupied', 'reserved', 'cleaning']
+    ).exists():
+        raise ValueError("No table can accommodate this party size")
+
+    if Customer.objects.filter(
+        phone=phone,
+        queue_entries__restaurant=restaurant,
+        queue_entries__status__in=['waiting', 'called', 'seated']
+    ).exists():
+        raise ValueError("Customer already has an active queue entry")
+
     # 2️⃣ Get or create customer
-    customer, _ = Customer.objects.get_or_create(
+    customer, created = Customer.objects.get_or_create(
         phone=phone,
         defaults={'name': name}
     )
+    if not created and customer.name != name:
+        customer.name = name
+        customer.save(update_fields=['name'])
 
     # 3️⃣ Generate token
     token = generate_token(restaurant_id)
@@ -142,24 +178,77 @@ def join_queue_service(data):
         queue_entry.seated_at = timezone.now()
         queue_entry.save()
 
-        TableAssignment.objects.create(
+        assignment = TableAssignment.objects.create(
             queue_entry=queue_entry,
             table_unit=table
         )
+        customer.visit_count += 1
+        customer.save(update_fields=['visit_count'])
 
         return {
             "message": "Table assigned immediately",
             "token": token,
+            "status": queue_entry.status,
+            "assignment_id": assignment.id,
             "table": table.table_number,
             "wait_time": 0
         }
 
     # 8️⃣ Otherwise → customer joins queue
+    # Send SMS notification
+    from notifications.services import notify_queue_joined
+    try:
+        notify_queue_joined(queue_entry.id)
+    except Exception as e:
+        logger.warning(f"Failed to send SMS notification: {str(e)}")
+
     return {
         "message": "Added to queue",
         "token": token,
+        "status": queue_entry.status,
         "wait_time": wait_time
     }
+
+
+def priority_order_expression():
+    return Case(
+        When(priority='vip', then=Value(0)),
+        When(priority='high', then=Value(1)),
+        default=Value(2),
+        output_field=IntegerField(),
+    )
+
+
+def get_next_waiting_entry_for_table(restaurant, table):
+    return QueueEntry.objects.select_for_update().filter(
+        restaurant=restaurant,
+        status='waiting',
+        expires_at__isnull=True,
+        party_size__lte=table.capacity
+    ).annotate(
+        priority_rank=priority_order_expression()
+    ).order_by('priority_rank', 'joined_at').first()
+
+
+def assign_table_and_call_customer(queue_entry, table):
+    from datetime import timedelta
+
+    now = timezone.now()
+
+    table.status = 'occupied'
+    table.save(update_fields=['status'])
+
+    queue_entry.status = 'called'
+    queue_entry.called_at = now
+    queue_entry.expires_at = now + timedelta(minutes=10)
+    queue_entry.save(update_fields=['status', 'called_at', 'expires_at'])
+
+    assignment = TableAssignment.objects.create(
+        queue_entry=queue_entry,
+        table_unit=table
+    )
+
+    return assignment
 
 
 @transaction.atomic
@@ -195,34 +284,20 @@ def clear_table_service(table_assignment_id):
     table.status = 'available'
     table.save(update_fields=['status'])
 
-    # 5️⃣ Find next suitable customer (IMPORTANT FIX)
-    next_entry = QueueEntry.objects.filter(
-        restaurant=restaurant,
-        status='waiting',
-        expires_at__isnull=True,  # ignore expired users
-        party_size__lte=table.capacity
-    ).order_by('priority', 'joined_at').first()
+    # 5️⃣ Find next suitable customer
+    next_entry = get_next_waiting_entry_for_table(restaurant, table)
 
     if next_entry:
-        # 6️⃣ Assign table
-        table.status = 'occupied'
-        table.save(update_fields=['status'])
-
-        next_entry.status = 'seated'
-        next_entry.seated_at = timezone.now()
-        next_entry.save(update_fields=['status', 'seated_at'])
-
-        TableAssignment.objects.create(
-            queue_entry=next_entry,
-            table_unit=table
-        )
+        # 6️⃣ Assign table and call customer
+        new_assignment = assign_table_and_call_customer(next_entry, table)
 
         # 7️⃣ Update wait times
         recalculate_wait_times(restaurant)
 
         return {
-            "message": "Table cleared and reassigned",
+            "message": "Table cleared and next customer called",
             "table": table.table_number,
+            "assignment_id": new_assignment.id,
             "next_customer": next_entry.customer.name,
             "next_token": next_entry.token_number
         }
@@ -244,7 +319,7 @@ def recalculate_wait_times(restaurant):
     ).order_by('joined_at')
 
     for entry in waiting_entries:
-        new_wait = calculate_wait_time(restaurant, entry.party_size)
+        new_wait = calculate_wait_time(restaurant, entry.party_size, queue_entry=entry)
 
         # Update only if changed (performance optimization)
         if new_wait != entry.estimated_wait_mins:
@@ -283,3 +358,38 @@ def leave_queue_service(token, restaurant_id):
     }
 
 
+@transaction.atomic
+def call_customer_service(queue_entry_id):
+    try:
+        entry = QueueEntry.objects.select_for_update().select_related(
+            'restaurant',
+            'customer'
+        ).get(
+            id=queue_entry_id,
+            status='waiting'
+        )
+    except QueueEntry.DoesNotExist:
+        raise ValueError("Queue entry not found or not waiting")
+
+    table = find_best_table(entry.restaurant, entry.party_size)
+    if not table:
+        raise ValueError("No available table for this party size")
+
+    assignment = assign_table_and_call_customer(entry, table)
+    recalculate_wait_times(entry.restaurant)
+
+    # Send SMS notification
+    from notifications.services import notify_table_ready
+    try:
+        notify_table_ready(entry.id, table.table_number)
+    except Exception as e:
+        logger.warning(f"Failed to send SMS notification: {str(e)}")
+
+    return {
+        "message": "Customer called and table assigned",
+        "token": entry.token_number,
+        "customer": entry.customer.name,
+        "table": table.table_number,
+        "assignment_id": assignment.id,
+        "expires_at": entry.expires_at,
+    }

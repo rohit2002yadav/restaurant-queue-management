@@ -284,13 +284,21 @@ class TableAssignment(models.Model):
         #   "One customer can have only ONE active table"
 
         if self.is_active and not self.pk:
-            already_exists = TableAssignment.objects.filter(
+            customer_already_has_table = TableAssignment.objects.filter(
                 queue_entry=self.queue_entry,
                 is_active=True
             ).exists()
 
-            if already_exists:
+            if customer_already_has_table:
                 raise ValueError("Customer already has an active table")
+
+            table_already_assigned = TableAssignment.objects.filter(
+                table_unit=self.table_unit,
+                is_active=True
+            ).exists()
+
+            if table_already_assigned:
+                raise ValueError("Table already has an active assignment")
 
         super().save(*args, **kwargs)
 

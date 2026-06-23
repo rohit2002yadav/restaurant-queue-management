@@ -76,6 +76,8 @@ class JoinQueueSerializer(serializers.Serializer):
             )
         return value
 
+    restaurant_id = serializers.IntegerField(min_value=1)
+
 
 # =========================================================
 # QUEUE ENTRY SERIALIZER (OUTPUT SERIALIZER)
@@ -123,3 +125,44 @@ class QueueEntrySerializer(serializers.ModelSerializer):
         # → We exclude internal fields like:
         #    - expires_at
         #    - database-only fields
+
+
+class TableAssignmentSerializer(serializers.ModelSerializer):
+    token_number = serializers.CharField(
+        source='queue_entry.token_number',
+        read_only=True
+    )
+    customer_name = serializers.CharField(
+        source='queue_entry.customer.name',
+        read_only=True
+    )
+    customer_phone = serializers.CharField(
+        source='queue_entry.customer.phone',
+        read_only=True
+    )
+    party_size = serializers.IntegerField(
+        source='queue_entry.party_size',
+        read_only=True
+    )
+    table_number = serializers.CharField(
+        source='table_unit.table_number',
+        read_only=True
+    )
+    table_capacity = serializers.IntegerField(
+        source='table_unit.capacity',
+        read_only=True
+    )
+
+    class Meta:
+        model = TableAssignment
+        fields = [
+            'id',
+            'token_number',
+            'customer_name',
+            'customer_phone',
+            'party_size',
+            'table_number',
+            'table_capacity',
+            'assigned_at',
+            'is_active',
+        ]
