@@ -1,5 +1,4 @@
 from django.db import models
-from django.contrib.auth.models import User
 from django.core.validators import RegexValidator, MinValueValidator, MaxValueValidator
 from restaurants.models import Restaurant, TableUnit
 
@@ -262,7 +261,7 @@ class TableAssignment(models.Model):
     # When table became free
 
     assigned_by = models.ForeignKey(
-        User,
+        'accounts.User',
         null=True,
         blank=True,
         on_delete=models.SET_NULL

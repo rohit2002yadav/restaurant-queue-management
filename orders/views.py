@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAdminUser
+from accounts.permissions import IsAdminRole
 
 from .serializers import (
     MenuItemSerializer,
@@ -89,13 +89,7 @@ class CreateOrderView(APIView):
 # GET ORDER DETAILS
 # =========================================================
 class OrderDetailView(APIView):
-    """
-    GET /api/orders/<order_id>/
-
-    Returns: Full order details with all items
-    """
-
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminRole]
 
     def get(self, request, order_id):
         try:
@@ -125,16 +119,7 @@ class OrderDetailView(APIView):
 # UPDATE ORDER STATUS
 # =========================================================
 class UpdateOrderStatusView(APIView):
-    """
-    PATCH /api/orders/<order_id>/status/
-
-    Payload:
-    {"status": "confirmed"}
-
-    Valid statuses: pending, confirmed, preparing, ready, delivered, completed
-    """
-
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminRole]
 
     def patch(self, request, order_id):
         serializer = UpdateOrderStatusSerializer(data=request.data)
@@ -169,16 +154,7 @@ class UpdateOrderStatusView(APIView):
 # UPDATE ORDER ITEM STATUS
 # =========================================================
 class UpdateOrderItemStatusView(APIView):
-    """
-    PATCH /api/orders/item/<item_id>/status/
-
-    Payload:
-    {"status": "ready"}
-
-    Valid statuses: pending, preparing, ready, served
-    """
-
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminRole]
 
     def patch(self, request, item_id):
         serializer = UpdateOrderItemStatusSerializer(data=request.data)
@@ -213,13 +189,7 @@ class UpdateOrderItemStatusView(APIView):
 # GET ORDERS FOR TABLE
 # =========================================================
 class TableOrdersView(APIView):
-    """
-    GET /api/orders/table/<table_assignment_id>/
-
-    Returns: All orders for a specific table
-    """
-
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminRole]
 
     def get(self, request, table_assignment_id):
         try:
@@ -245,15 +215,7 @@ class TableOrdersView(APIView):
 # GET ACTIVE ORDERS FOR RESTAURANT (Kitchen Dashboard)
 # =========================================================
 class RestaurantActiveOrdersView(APIView):
-    """
-    GET /api/orders/restaurant/<restaurant_id>/active/
-
-    Kitchen staff view: All active orders for the restaurant
-
-    Returns: Orders with status in (pending, confirmed, preparing, ready)
-    """
-
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminRole]
 
     def get(self, request, restaurant_id):
         try:

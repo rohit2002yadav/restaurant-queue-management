@@ -1,10 +1,9 @@
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Sum, F
 from datetime import timedelta
 import logging
 
-from .models import MenuItem, OrderRecord, OrderItem
+from .models import MenuItem, OrderRecord, OrderItem  # noqa: F401 (OrderItem used in create_order_service)
 from queue_manager.models import TableAssignment
 
 logger = logging.getLogger(__name__)

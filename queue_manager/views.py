@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAdminUser
+from accounts.permissions import IsAdminRole
 from .serializers import (
     JoinQueueSerializer,
     QueueEntrySerializer,
@@ -64,11 +64,14 @@ class JoinQueueView(APIView):
 class QueueStatusView(APIView):
 
     def get(self, request, token):
-        # 1️⃣ Fetch queue entry
+        # 1️⃣ Fetch queue entry — use latest by id to avoid MultipleObjectsReturned
+        # tokens are unique per restaurant, not globally, so get the most recent
         try:
-            entry = QueueEntry.objects.select_related('customer', 'restaurant').get(
+            entry = QueueEntry.objects.select_related('customer', 'restaurant').filter(
                 token_number=token
-            )
+            ).order_by('-id').first()
+            if entry is None:
+                raise QueueEntry.DoesNotExist
         except QueueEntry.DoesNotExist:
             return Response(
                 {"error": "Token not found"},
@@ -112,7 +115,7 @@ class QueueStatusView(APIView):
 # Staff sees current waiting queue
 # =========================================================
 class RestaurantQueueView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminRole]
 
     def get(self, request, restaurant_id):
         # 1️⃣ Fetch only waiting customers
@@ -132,7 +135,7 @@ class RestaurantQueueView(APIView):
 
 
 class StaffDashboardView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminRole]
 
     def get(self, request, restaurant_id):
         waiting_entries = QueueEntry.objects.filter(
@@ -155,7 +158,7 @@ class StaffDashboardView(APIView):
     
 
 class ClearTableView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminRole]
     # Handles POST /api/queue/clear-table/
     # Called by staff when customer finishes eating
 
@@ -226,7 +229,7 @@ class LeaveQueueView(APIView):
 
 
 class CallCustomerView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminRole]
     # Handles POST /api/queue/call-customer/
     # Staff taps "Call" button
 

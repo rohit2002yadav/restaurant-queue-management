@@ -89,7 +89,6 @@ def get_sms_template(notification_type, context):
 # =========================================================
 # SEND SMS VIA TWILIO
 # =========================================================
-@transaction.atomic
 def send_sms(customer_phone, message, notification_type, queue_entry_id=None):
     """
     Send SMS via Twilio and log the attempt
@@ -188,7 +187,6 @@ def send_sms(customer_phone, message, notification_type, queue_entry_id=None):
 # =========================================================
 # NOTIFY CUSTOMER - Queue Joined
 # =========================================================
-@transaction.atomic
 def notify_queue_joined(queue_entry_id):
     """
     Send SMS when customer joins queue
@@ -230,7 +228,6 @@ def notify_queue_joined(queue_entry_id):
 # =========================================================
 # NOTIFY CUSTOMER - You're Next
 # =========================================================
-@transaction.atomic
 def notify_you_are_next(queue_entry_id):
     """
     Send SMS when customer is about to be called
@@ -266,7 +263,6 @@ def notify_you_are_next(queue_entry_id):
 # =========================================================
 # NOTIFY CUSTOMER - Table Ready (Called)
 # =========================================================
-@transaction.atomic
 def notify_table_ready(queue_entry_id, table_number):
     """
     Send SMS when table is ready and customer is called
@@ -304,7 +300,6 @@ def notify_table_ready(queue_entry_id, table_number):
 # =========================================================
 # NOTIFY CUSTOMER - No-Show Detected
 # =========================================================
-@transaction.atomic
 def notify_no_show(queue_entry_id):
     """
     Send SMS when customer marked as no-show
@@ -339,7 +334,6 @@ def notify_no_show(queue_entry_id):
 # =========================================================
 # NOTIFY CUSTOMER - Wait Time Update
 # =========================================================
-@transaction.atomic
 def notify_wait_time_update(queue_entry_id):
     """
     Send SMS when wait time changes significantly

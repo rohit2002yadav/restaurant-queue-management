@@ -46,7 +46,7 @@ def find_best_table(restaurant, party_size):
         restaurant=restaurant,
         capacity__gte=party_size,
         status='available'
-    ).select_for_update().order_by('capacity').first()
+    ).order_by('capacity').first()
 
 
 # =========================================================
@@ -234,6 +234,11 @@ def assign_table_and_call_customer(queue_entry, table):
     from datetime import timedelta
 
     now = timezone.now()
+
+    # Lock the table row inside the existing atomic block
+    table = TableUnit.objects.select_for_update().get(pk=table.pk)
+    if table.status != 'available':
+        raise ValueError("Table is no longer available")
 
     table.status = 'occupied'
     table.save(update_fields=['status'])
