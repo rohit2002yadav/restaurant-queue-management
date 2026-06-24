@@ -2,6 +2,22 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .models import Restaurant, TableUnit
+from rest_framework import serializers
+
+
+class RestaurantPublicSerializer(serializers.ModelSerializer):
+    """Public-safe restaurant fields only — no admin/private data."""
+    class Meta:
+        model = Restaurant
+        fields = ['id', 'name', 'address', 'is_active']
+
+
+class RestaurantListView(APIView):
+    """GET /api/restaurants/ — returns all active restaurants."""
+
+    def get(self, request):
+        restaurants = Restaurant.objects.filter(is_active=True).order_by('name')
+        return Response(RestaurantPublicSerializer(restaurants, many=True).data)
 
 
 class RestaurantDetailView(APIView):
