@@ -83,6 +83,31 @@ class QueueWorkflowTests(APITestCase):
         self.assertEqual(second_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('already has an active queue entry', second_response.data['error'])
 
+    def test_queue_status_invalid_token_returns_404(self):
+        response = self.client.get(
+            reverse('queue-status', kwargs={'token': 'T-999'})
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', response.data)
+
+    def test_queue_status_valid_token_returns_correct_structure(self):
+        TableUnit.objects.create(
+            restaurant=self.restaurant,
+            table_number='T2',
+            capacity=2,
+            status='occupied',
+        )
+        entry = join_queue_service(self.join_payload(phone='9876543230'))
+        response = self.client.get(
+            reverse('queue-status', kwargs={'token': entry['token']})
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('queue_entry', response.data)
+        self.assertIn('position', response.data)
+        self.assertIn('people_ahead', response.data)
+        self.assertIn('status', response.data)
+        self.assertEqual(response.data['queue_entry']['token_number'], entry['token'])
+
     def test_queue_status_and_leave_queue(self):
         TableUnit.objects.create(
             restaurant=self.restaurant,
