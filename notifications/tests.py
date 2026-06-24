@@ -437,3 +437,55 @@ class NoShowSMSIntegrationTestCase(TestCase):
 
         # SMS should have been called
         mock_notify.assert_called_once()
+
+
+class NotificationIsolationTests(APITestCase):
+    """Ensure staff cannot access other restaurant's feedback or notification logs."""
+
+    def setUp(self):
+        self.rest_a = Restaurant.objects.create(
+            name='Notif A', phone='9177000001',
+            address='Addr', opening_time='09:00', closing_time='23:00',
+        )
+        self.rest_b = Restaurant.objects.create(
+            name='Notif B', phone='9177000002',
+            address='Addr', opening_time='09:00', closing_time='23:00',
+        )
+        self.staff_a = User.objects.create_superuser(
+            email='notif_staff_a@test.com', password='pass',
+            name='Staff A', restaurant_id=self.rest_a.id,
+        )
+        self.staff_b = User.objects.create_superuser(
+            email='notif_staff_b@test.com', password='pass',
+            name='Staff B', restaurant_id=self.rest_b.id,
+        )
+
+    def test_staff_a_can_view_own_feedback(self):
+        self.client.force_authenticate(user=self.staff_a)
+        r = self.client.get(reverse('restaurant-feedback', kwargs={'restaurant_id': self.rest_a.id}))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+    def test_staff_a_cannot_view_other_feedback(self):
+        self.client.force_authenticate(user=self.staff_a)
+        r = self.client.get(reverse('restaurant-feedback', kwargs={'restaurant_id': self.rest_b.id}))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_staff_a_can_view_own_logs(self):
+        self.client.force_authenticate(user=self.staff_a)
+        r = self.client.get(reverse('notification-logs', kwargs={'restaurant_id': self.rest_a.id}))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+    def test_staff_a_cannot_view_other_logs(self):
+        self.client.force_authenticate(user=self.staff_a)
+        r = self.client.get(reverse('notification-logs', kwargs={'restaurant_id': self.rest_b.id}))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_staff_b_cannot_view_restaurant_a_logs(self):
+        self.client.force_authenticate(user=self.staff_b)
+        r = self.client.get(reverse('notification-logs', kwargs={'restaurant_id': self.rest_a.id}))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_staff_b_cannot_view_restaurant_a_feedback(self):
+        self.client.force_authenticate(user=self.staff_b)
+        r = self.client.get(reverse('restaurant-feedback', kwargs={'restaurant_id': self.rest_a.id}))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)

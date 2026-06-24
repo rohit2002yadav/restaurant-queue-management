@@ -8,6 +8,10 @@ from .models import Feedback, NotificationLog
 from queue_manager.models import QueueEntry
 
 
+def _admin_restaurant_id(request):
+    return getattr(request.user, 'restaurant_id', None)
+
+
 class SubmitFeedbackView(APIView):
     def post(self, request):
         serializer = SubmitFeedbackSerializer(data=request.data)
@@ -45,6 +49,13 @@ class RestaurantFeedbackView(APIView):
     permission_classes = [IsAdminRole]
 
     def get(self, request, restaurant_id):
+        # Enforce: staff can only view their own restaurant's feedback
+        if restaurant_id != _admin_restaurant_id(request):
+            return Response(
+                {"error": "You do not have permission to view this restaurant's feedback"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         feedbacks = Feedback.objects.filter(
             queue_entry__restaurant_id=restaurant_id
         ).select_related('queue_entry__customer').order_by('-submitted_at')
@@ -56,6 +67,13 @@ class NotificationLogsView(APIView):
     permission_classes = [IsAdminRole]
 
     def get(self, request, restaurant_id):
+        # Enforce: staff can only view their own restaurant's logs
+        if restaurant_id != _admin_restaurant_id(request):
+            return Response(
+                {"error": "You do not have permission to view this restaurant's logs"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         logs = NotificationLog.objects.filter(
             queue_entry__restaurant_id=restaurant_id
         ).select_related('queue_entry').order_by('-sent_at')[:100]

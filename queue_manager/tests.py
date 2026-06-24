@@ -21,10 +21,12 @@ class QueueWorkflowTests(APITestCase):
             avg_meal_duration_mins=45,
             max_queue_size=10,
         )
+        # Link staff user to the test restaurant so isolation checks pass
         self.staff_user = User.objects.create_superuser(
             email='staff@example.com',
             password='test-pass',
             name='Staff User',
+            restaurant_id=self.restaurant.id,
         )
 
     def create_customer(self, phone='9876543211', name='Guest'):
@@ -293,3 +295,83 @@ class QueueWorkflowTests(APITestCase):
         self.assertEqual(entry.status, 'no_show')
         self.assertEqual(table.status, 'available')
         self.assertFalse(assignment.is_active)
+
+
+class RestaurantIsolationTests(APITestCase):
+    """Ensure staff can only access their own restaurant's data."""
+
+    def setUp(self):
+        self.rest_a = Restaurant.objects.create(
+            name='Isolation A', phone='9188000001',
+            address='Addr', opening_time='09:00', closing_time='23:00',
+        )
+        self.rest_b = Restaurant.objects.create(
+            name='Isolation B', phone='9188000002',
+            address='Addr', opening_time='09:00', closing_time='23:00',
+        )
+        self.staff_a = User.objects.create_superuser(
+            email='iso_staff_a@test.com', password='pass',
+            name='Staff A', restaurant_id=self.rest_a.id,
+        )
+        self.staff_b = User.objects.create_superuser(
+            email='iso_staff_b@test.com', password='pass',
+            name='Staff B', restaurant_id=self.rest_b.id,
+        )
+        self.table_a = TableUnit.objects.create(
+            restaurant=self.rest_a, table_number='T1', capacity=2, status='available',
+        )
+        self.customer = Customer.objects.create(name='ISO Guest', phone='9788000001')
+        self.entry_a = QueueEntry.objects.create(
+            restaurant=self.rest_a, customer=self.customer,
+            token_number='T-ISO-001', party_size=2, status='waiting',
+        )
+
+    def test_staff_a_can_access_own_dashboard(self):
+        self.client.force_authenticate(user=self.staff_a)
+        r = self.client.get(reverse('staff-dashboard', kwargs={'restaurant_id': self.rest_a.id}))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+    def test_staff_a_cannot_access_other_dashboard(self):
+        self.client.force_authenticate(user=self.staff_a)
+        r = self.client.get(reverse('staff-dashboard', kwargs={'restaurant_id': self.rest_b.id}))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_staff_a_can_access_own_queue(self):
+        self.client.force_authenticate(user=self.staff_a)
+        r = self.client.get(reverse('restaurant-queue', kwargs={'restaurant_id': self.rest_a.id}))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+    def test_staff_a_cannot_access_other_queue(self):
+        self.client.force_authenticate(user=self.staff_a)
+        r = self.client.get(reverse('restaurant-queue', kwargs={'restaurant_id': self.rest_b.id}))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_staff_b_cannot_call_other_restaurant_entry(self):
+        self.client.force_authenticate(user=self.staff_b)
+        r = self.client.post(
+            reverse('call-customer'),
+            {'queue_entry_id': self.entry_a.id},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_staff_b_cannot_clear_other_restaurant_table(self):
+        # First create an active assignment on rest_a
+        self.entry_a.status = 'seated'
+        self.entry_a.save()
+        self.table_a.status = 'occupied'
+        self.table_a.save()
+        assignment = TableAssignment.objects.create(
+            queue_entry=self.entry_a, table_unit=self.table_a
+        )
+        self.client.force_authenticate(user=self.staff_b)
+        r = self.client.post(
+            reverse('clear-table'),
+            {'table_assignment_id': assignment.id},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unauthenticated_cannot_access_dashboard(self):
+        r = self.client.get(reverse('staff-dashboard', kwargs={'restaurant_id': self.rest_a.id}))
+        self.assertIn(r.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
