@@ -1,5 +1,5 @@
 from django.urls import reverse
-from django.contrib.auth.models import User
+from accounts.models import User
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -22,9 +22,9 @@ class QueueWorkflowTests(APITestCase):
             max_queue_size=10,
         )
         self.staff_user = User.objects.create_superuser(
-            username='staff',
             email='staff@example.com',
             password='test-pass',
+            name='Staff User',
         )
 
     def create_customer(self, phone='9876543211', name='Guest'):

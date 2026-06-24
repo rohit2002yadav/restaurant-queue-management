@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'queue_manager',
     'orders',
     'notifications',
+    'rest_framework_simplejwt.token_blacklist',
     'django_celery_beat',
 ]
 
@@ -157,17 +158,20 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '60/minute',
-        'user': '120/minute',
-        'otp':  '5/minute',
+        'anon':     '60/minute',
+        'user':     '120/minute',
+        'otp':      '5/minute',
+        'login':    '10/minute',
+        'register': '5/minute',
     },
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME':  timedelta(hours=12),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    'ROTATE_REFRESH_TOKENS':  True,
-    'AUTH_HEADER_TYPES':      ('Bearer',),
+    'ACCESS_TOKEN_LIFETIME':   timedelta(hours=12),
+    'REFRESH_TOKEN_LIFETIME':  timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS':   True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'AUTH_HEADER_TYPES':       ('Bearer',),
 }
 
 # =========================

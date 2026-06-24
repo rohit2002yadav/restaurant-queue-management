@@ -16,7 +16,7 @@ from .serializers import (
     UserProfileSerializer,
 )
 from .services import create_otp, send_otp_email, verify_otp, get_tokens_for_user
-from .throttles import OTPRateThrottle
+from .throttles import OTPRateThrottle, LoginRateThrottle, RegisterRateThrottle
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,7 @@ def _otp_response(message, email, otp):
 
 
 class AdminRegisterView(APIView):
+    throttle_classes = [RegisterRateThrottle]
     def post(self, request):
         serializer = AdminRegisterSerializer(data=request.data)
         if not serializer.is_valid():
@@ -99,6 +100,7 @@ class AdminRegisterView(APIView):
 
 
 class CustomerRegisterView(APIView):
+    throttle_classes = [RegisterRateThrottle]
     def post(self, request):
         serializer = CustomerRegisterSerializer(data=request.data)
         if not serializer.is_valid():
@@ -180,6 +182,7 @@ class VerifyOTPView(APIView):
 
 
 class LoginView(APIView):
+    throttle_classes = [LoginRateThrottle]
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         if not serializer.is_valid():
@@ -220,7 +223,8 @@ class ResendOTPView(APIView):
         purpose = serializer.validated_data['purpose']
 
         if not User.objects.filter(email=email).exists():
-            return Response({'error': 'No account found with this email'}, status=status.HTTP_404_NOT_FOUND)
+            # Return 200 instead of 404 to prevent account enumeration
+            return Response({'message': 'If an account exists, OTP has been resent'}, status=status.HTTP_200_OK)
 
         otp  = create_otp(email, purpose=purpose)
         send_otp_email(email, otp, purpose=purpose)

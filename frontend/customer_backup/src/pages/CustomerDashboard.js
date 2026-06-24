@@ -42,7 +42,7 @@ export default function CustomerDashboard() {
         }
     };
 
-    const handleLogout = () => { logout(); navigate('/login'); };
+    const handleLogout = async () => { await logout(); navigate('/login'); };
 
     const getStatusColor = (s) => {
         if (s === 'seated') return 'text-green-500';

@@ -1,5 +1,5 @@
 from django.test import TestCase
-from django.contrib.auth.models import User
+from accounts.models import User
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -351,10 +351,14 @@ class OrderAPITestCase(APITestCase):
             base_prep_time_mins=15,
         )
         self.staff = User.objects.create_superuser(
-            username='staff',
             email='staff@test.com',
             password='testpass',
+            name='Staff User',
+            role='admin',
         )
+        # Link staff to the test restaurant so ownership checks pass
+        self.staff.restaurant_id = self.restaurant.id
+        self.staff.save(update_fields=['restaurant_id'])
 
     def test_get_menu_public(self):
         """Anyone can view menu"""
@@ -379,8 +383,8 @@ class OrderAPITestCase(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_create_order_no_auth_required(self):
-        """Anyone with valid table assignment can create order"""
+    def test_create_order_requires_auth(self):
+        """Unauthenticated request to create order must be rejected"""
         payload = {
             'table_assignment_id': self.assignment.id,
             'items': [
@@ -388,7 +392,7 @@ class OrderAPITestCase(APITestCase):
             ],
         }
         response = self.client.post(reverse('create-order'), payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_create_order_success(self):
         """Staff can create order"""

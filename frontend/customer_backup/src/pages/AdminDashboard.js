@@ -63,7 +63,7 @@ export default function AdminDashboard() {
         setActionLoading(null);
     };
 
-    const handleLogout = () => { logout(); navigate('/login'); };
+    const handleLogout = async () => { await logout(); navigate('/login'); };
     const waiting = queue.filter(q => q.status === 'waiting').length;
     const called = queue.filter(q => q.status === 'called').length;
 

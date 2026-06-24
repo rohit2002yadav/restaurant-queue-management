@@ -1,5 +1,8 @@
+import re
 from rest_framework import serializers
 from .models import Customer, QueueEntry, TableAssignment
+
+INDIAN_PHONE_RE = re.compile(r'^[6-9]\d{9}$')
 
 
 # =========================================================
@@ -62,15 +65,7 @@ class JoinQueueSerializer(serializers.Serializer):
     # allow_blank=True → "" allowed
 
     def validate_phone(self, value):
-        # WHAT:
-        # → Custom validation function
-
-        # WHY:
-        # → Ensures only valid Indian numbers are accepted
-        # → Prevents garbage data entering system
-
-        import re
-        if not re.match(r'^[6-9]\d{9}$', value):
+        if not INDIAN_PHONE_RE.match(value):
             raise serializers.ValidationError(
                 "Enter a valid 10 digit Indian mobile number"
             )

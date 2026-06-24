@@ -1,5 +1,8 @@
+import re
 from rest_framework import serializers
 from .models import User
+
+INDIAN_PHONE_RE = re.compile(r'^[6-9]\d{9}$')
 
 
 class AdminRegisterSerializer(serializers.Serializer):
@@ -10,8 +13,7 @@ class AdminRegisterSerializer(serializers.Serializer):
     password        = serializers.CharField(min_length=6, write_only=True)
 
     def validate_phone(self, value):
-        import re
-        if not re.match(r'^[6-9]\d{9}$', value):
+        if not INDIAN_PHONE_RE.match(value):
             raise serializers.ValidationError('Enter a valid 10-digit Indian mobile number')
         return value
 
@@ -28,8 +30,7 @@ class CustomerRegisterSerializer(serializers.Serializer):
     password = serializers.CharField(min_length=6, write_only=True)
 
     def validate_phone(self, value):
-        import re
-        if not re.match(r'^[6-9]\d{9}$', value):
+        if not INDIAN_PHONE_RE.match(value):
             raise serializers.ValidationError('Enter a valid 10-digit Indian mobile number')
         return value
 

@@ -1,5 +1,5 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView, TokenBlacklistView
 from .views import (
     AdminRegisterView,
     CustomerRegisterView,
@@ -16,5 +16,6 @@ urlpatterns = [
     path('login/',             LoginView.as_view(),            name='login'),
     path('resend-otp/',        ResendOTPView.as_view(),        name='resend-otp'),
     path('token/refresh/',     TokenRefreshView.as_view(),     name='token-refresh'),
+    path('token/blacklist/',   TokenBlacklistView.as_view(),   name='token-blacklist'),
     path('profile/',           ProfileView.as_view(),          name='profile'),
 ]
