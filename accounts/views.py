@@ -14,6 +14,8 @@ from .serializers import (
     LoginSerializer,
     ResendOTPSerializer,
     UserProfileSerializer,
+    RequestPasswordResetSerializer,
+    ResetPasswordSerializer,
 )
 from .services import create_otp, send_otp_email, verify_otp, get_tokens_for_user
 from .throttles import OTPRateThrottle, LoginRateThrottle, RegisterRateThrottle
@@ -24,7 +26,7 @@ logger = logging.getLogger(__name__)
 @transaction.atomic
 def _create_restaurant_for_admin(user):
     """Create a Restaurant + default tables for a newly verified admin."""
-    from restaurants.models import Restaurant, TableUnit
+    from restaurants.models import Restaurant
 
     # Idempotent: return early if already linked
     if user.restaurant_id:
@@ -38,23 +40,13 @@ def _create_restaurant_for_admin(user):
     restaurant = Restaurant.objects.create(
         name                   = user.restaurant_name,
         phone                  = user.phone,
-        address                = 'Please update your address from the dashboard',
+        address                = user.restaurant_address or 'Please update your address',
         opening_time           = '09:00',
         closing_time           = '23:00',
         avg_meal_duration_mins = 45,
         max_queue_size         = 50,
         is_active              = True,
     )
-
-    default_tables = [
-        ('T1', 2), ('T2', 2),
-        ('T3', 4), ('T4', 4), ('T5', 4), ('T6', 4),
-        ('T7', 6), ('T8', 6),
-    ]
-    TableUnit.objects.bulk_create([
-        TableUnit(restaurant=restaurant, table_number=tn, capacity=cap, status='available')
-        for tn, cap in default_tables
-    ])
 
     logger.info(f"Created restaurant '{restaurant.name}' (id={restaurant.id}) for admin {user.email}")
     return restaurant.id
@@ -79,13 +71,14 @@ class AdminRegisterView(APIView):
         try:
             with transaction.atomic():
                 user = User.objects.create_user(
-                    email           = data['email'],
-                    password        = data['password'],
-                    name            = data['name'],
-                    phone           = data['phone'],
-                    role            = 'admin',
-                    restaurant_name = data['restaurant_name'],
-                    is_verified     = False,
+                    email              = data['email'],
+                    password           = data['password'],
+                    name               = data['name'],
+                    phone              = data['phone'],
+                    role               = 'admin',
+                    restaurant_name    = data['restaurant_name'],
+                    restaurant_address = data['restaurant_address'],
+                    is_verified        = False,
                 )
             otp  = create_otp(data['email'], purpose='registration')
             send_otp_email(data['email'], otp, purpose='registration')
@@ -240,3 +233,47 @@ class ProfileView(APIView):
 
     def get(self, request):
         return Response(UserProfileSerializer(request.user).data)
+
+
+class RequestPasswordResetView(APIView):
+    throttle_classes = [OTPRateThrottle]
+
+    def post(self, request):
+        serializer = RequestPasswordResetSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        email = serializer.validated_data['email']
+        # Always return 200 to prevent account enumeration
+        if User.objects.filter(email=email, is_verified=True).exists():
+            otp = create_otp(email, purpose='password_reset')
+            send_otp_email(email, otp, purpose='password_reset')
+            data = {'message': 'If an account exists, a reset OTP has been sent'}
+            if settings.DEBUG:
+                data['dev_otp'] = otp
+            return Response(data, status=status.HTTP_200_OK)
+
+        return Response({'message': 'If an account exists, a reset OTP has been sent'}, status=status.HTTP_200_OK)
+
+
+class ResetPasswordView(APIView):
+    throttle_classes = [OTPRateThrottle]
+
+    def post(self, request):
+        serializer = ResetPasswordSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        valid, message = verify_otp(data['email'], data['otp'], purpose='password_reset')
+        if not valid:
+            return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(email=data['email'], is_verified=True)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(data['new_password'])
+        user.save(update_fields=['password'])
+        return Response({'message': 'Password reset successful. You can now log in.'}, status=status.HTTP_200_OK)

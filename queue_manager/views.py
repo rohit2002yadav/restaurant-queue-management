@@ -1,7 +1,8 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from accounts.permissions import IsAdminRole
+from accounts.permissions import IsAdminRole, IsCustomerRole
+from notifications.models import Feedback
 from .serializers import (
     JoinQueueSerializer,
     QueueEntrySerializer,
@@ -12,8 +13,9 @@ from .services import (
     clear_table_service,
     join_queue_service,
     leave_queue_service,
+    seat_customer_service,
 )
-from .models import QueueEntry, TableAssignment
+from .models import Customer, QueueEntry, TableAssignment
 
 
 def _admin_restaurant_id(request):
@@ -59,11 +61,34 @@ class QueueStatusView(APIView):
             position = people_ahead + 1
 
         serializer = QueueEntrySerializer(entry)
+
+        # Dining details — only populated when seated/called/completed
+        dining_info = None
+        if entry.status in ('seated', 'called', 'completed'):
+            assignment = (
+                TableAssignment.objects
+                .select_related('table_unit')
+                .filter(queue_entry=entry)
+                .order_by('-assigned_at')
+                .first()
+            )
+            has_feedback = Feedback.objects.filter(queue_entry=entry).exists()
+            dining_info = {
+                'restaurant_name':    entry.restaurant.name,
+                'restaurant_address': entry.restaurant.address,
+                'restaurant_phone':   entry.restaurant.phone,
+                'table_number':       assignment.table_unit.table_number if assignment else None,
+                'table_capacity':     assignment.table_unit.capacity     if assignment else None,
+                'assigned_at':        assignment.assigned_at.isoformat()  if assignment else None,
+                'has_feedback':       has_feedback,
+            }
+
         return Response({
             "queue_entry": serializer.data,
             "position": position,
             "people_ahead": people_ahead,
-            "status": entry.status
+            "status": entry.status,
+            "dining_info": dining_info,
         })
 
 
@@ -218,3 +243,89 @@ class CallCustomerView(APIView):
                 {"error": "Something went wrong"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class SeatCustomerView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def post(self, request):
+        queue_entry_id = request.data.get('queue_entry_id')
+        if not queue_entry_id:
+            return Response(
+                {"error": "queue_entry_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Ownership check: entry must belong to this admin's restaurant
+        try:
+            entry = QueueEntry.objects.select_related('restaurant').get(
+                id=queue_entry_id, status='called'
+            )
+        except QueueEntry.DoesNotExist:
+            return Response(
+                {"error": "Queue entry not found or not in 'called' state"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if entry.restaurant_id != _admin_restaurant_id(request):
+            return Response(
+                {"error": "You do not have permission to seat this customer"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            result = seat_customer_service(queue_entry_id)
+            return Response(result, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response(
+                {"error": "Something went wrong"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class MyActiveQueueView(APIView):
+    permission_classes = [IsCustomerRole]
+
+    def get(self, request):
+        phone = getattr(request.user, 'phone', None)
+        if not phone:
+            return Response({'has_active_queue': False})
+
+        try:
+            customer = Customer.objects.get(phone=phone)
+        except Customer.DoesNotExist:
+            return Response({'has_active_queue': False})
+
+        entry = (
+            QueueEntry.objects
+            .select_related('restaurant')
+            .filter(customer=customer, status__in=['waiting', 'called', 'seated'])
+            .order_by('-id')
+            .first()
+        )
+
+        if not entry:
+            return Response({'has_active_queue': False})
+
+        table_number = None
+        if entry.status == 'seated':
+            assignment = (
+                TableAssignment.objects
+                .select_related('table_unit')
+                .filter(queue_entry=entry, is_active=True)
+                .first()
+            )
+            if assignment:
+                table_number = assignment.table_unit.table_number
+
+        return Response({
+            'has_active_queue':  True,
+            'restaurant_id':     entry.restaurant_id,
+            'restaurant_name':   entry.restaurant.name,
+            'token_number':      entry.token_number,
+            'status':            entry.status,
+            'party_size':        entry.party_size,
+            'table_number':      table_number,
+        })

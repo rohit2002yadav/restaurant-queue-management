@@ -1,4 +1,4 @@
-import random
+import secrets
 import logging
 from datetime import timedelta
 from django.utils import timezone
@@ -15,7 +15,8 @@ OTP_EXPIRY_MINUTES = 10
 
 
 def generate_otp():
-    return str(random.randint(100000, 999999))
+    # secrets.randbelow is CSPRNG — safe for security-sensitive OTPs
+    return str(secrets.randbelow(900000) + 100000)
 
 
 def send_otp_email(email, otp, purpose='registration'):
@@ -26,6 +27,12 @@ def send_otp_email(email, otp, purpose='registration'):
             f"Your email verification OTP is: {otp}\n\n"
             f"This OTP is valid for {OTP_EXPIRY_MINUTES} minutes.\n"
             f"Do not share this with anyone."
+        )
+    elif purpose == 'password_reset':
+        body = (
+            f"Your password reset OTP is: {otp}\n\n"
+            f"Valid for {OTP_EXPIRY_MINUTES} minutes.\n"
+            f"If you did not request this, ignore this email."
         )
     else:
         body = (

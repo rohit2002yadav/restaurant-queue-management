@@ -2,7 +2,6 @@ import logging
 from twilio.rest import Client
 from django.conf import settings
 from django.utils import timezone
-from django.db import transaction
 
 from .models import NotificationLog
 from queue_manager.models import QueueEntry

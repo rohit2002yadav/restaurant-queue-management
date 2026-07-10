@@ -10,16 +10,16 @@ logger = logging.getLogger(__name__)
 
 
 # =========================================================
-# TOKEN GENERATION (SAFE VERSION)
+# TOKEN GENERATION
+# Tokens are sequential per restaurant and never repeat
+# (UniqueConstraint is lifetime-scoped, not daily).
+# We start from the last token ever issued and increment.
 # =========================================================
 @transaction.atomic
 def generate_token(restaurant_id):
-    today = timezone.now().date()
-
-    # Get last token number used today
+    # Find the highest token number ever issued for this restaurant
     last_entry = QueueEntry.objects.select_for_update().filter(
-        restaurant_id=restaurant_id,
-        joined_at__date=today
+        restaurant_id=restaurant_id
     ).order_by('-id').first()
 
     if last_entry:
@@ -27,8 +27,7 @@ def generate_token(restaurant_id):
     else:
         new_number = 1
 
-    # Safety check: keep incrementing if token already exists
-    # (handles edge case of manually added tokens)
+    # Guard against any gap (e.g. manually inserted rows)
     while QueueEntry.objects.filter(
         restaurant_id=restaurant_id,
         token_number=f"T-{str(new_number).zfill(3)}"
@@ -316,17 +315,60 @@ def clear_table_service(table_assignment_id):
         "next_customer": None
     }
 
+@transaction.atomic
+def seat_customer_service(queue_entry_id):
+    """
+    Transition a customer from 'called' to 'seated'.
+    Called when the customer physically arrives at the restaurant.
+    Clears the no-show expiry timer.
+    """
+    try:
+        entry = QueueEntry.objects.select_for_update().select_related(
+            'restaurant', 'customer'
+        ).get(
+            id=queue_entry_id,
+            status='called'
+        )
+    except QueueEntry.DoesNotExist:
+        raise ValueError("Queue entry not found or not in 'called' state")
+
+    now = timezone.now()
+    entry.status = 'seated'
+    entry.seated_at = now
+    entry.expires_at = None  # Customer arrived — cancel no-show timer
+    entry.save(update_fields=['status', 'seated_at', 'expires_at'])
+
+    assignment = (
+        TableAssignment.objects
+        .select_related('table_unit')
+        .filter(queue_entry=entry, is_active=True)
+        .first()
+    )
+
+    entry.customer.visit_count = entry.customer.visit_count + 1
+    entry.customer.save(update_fields=['visit_count'])
+
+    return {
+        "message": "Customer seated",
+        "token": entry.token_number,
+        "customer": entry.customer.name,
+        "table": assignment.table_unit.table_number if assignment else None,
+    }
+
+
 def recalculate_wait_times(restaurant):
-    waiting_entries = QueueEntry.objects.filter(
-        restaurant=restaurant,
-        status='waiting',
-        expires_at__isnull=True
-    ).order_by('joined_at')
+    waiting_entries = list(
+        QueueEntry.objects.filter(
+            restaurant=restaurant,
+            status='waiting',
+            expires_at__isnull=True
+        ).order_by('joined_at')
+    )
+    if not waiting_entries:
+        return
 
     for entry in waiting_entries:
         new_wait = calculate_wait_time(restaurant, entry.party_size, queue_entry=entry)
-
-        # Update only if changed (performance optimization)
         if new_wait != entry.estimated_wait_mins:
             entry.estimated_wait_mins = new_wait
             entry.save(update_fields=['estimated_wait_mins'])
@@ -396,5 +438,5 @@ def call_customer_service(queue_entry_id):
         "customer": entry.customer.name,
         "table": table.table_number,
         "assignment_id": assignment.id,
-        "expires_at": entry.expires_at,
+        "expires_at": entry.expires_at.isoformat() if entry.expires_at else None,
     }

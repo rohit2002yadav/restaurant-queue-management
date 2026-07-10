@@ -83,7 +83,6 @@ class MenuView(APIView):
 
 # =========================================================
 # CREATE ORDER
-# FIX V1: Added IsAdminRole + restaurant ownership check
 # =========================================================
 class CreateOrderView(APIView):
     permission_classes = [IsAdminRole]
@@ -129,7 +128,6 @@ class CreateOrderView(APIView):
 
 # =========================================================
 # GET ORDER DETAILS
-# FIX V5: Added restaurant ownership check
 # =========================================================
 class OrderDetailView(APIView):
     permission_classes = [IsAdminRole]
@@ -155,7 +153,6 @@ class OrderDetailView(APIView):
 
 # =========================================================
 # UPDATE ORDER STATUS
-# FIX V3: Added restaurant ownership check
 # =========================================================
 class UpdateOrderStatusView(APIView):
     permission_classes = [IsAdminRole]
@@ -193,7 +190,6 @@ class UpdateOrderStatusView(APIView):
 
 # =========================================================
 # UPDATE ORDER ITEM STATUS
-# FIX V6: Added restaurant ownership check
 # =========================================================
 class UpdateOrderItemStatusView(APIView):
     permission_classes = [IsAdminRole]
@@ -231,7 +227,6 @@ class UpdateOrderItemStatusView(APIView):
 
 # =========================================================
 # GET ORDERS FOR TABLE
-# FIX V4: Added restaurant ownership check
 # =========================================================
 class TableOrdersView(APIView):
     permission_classes = [IsAdminRole]
@@ -263,7 +258,6 @@ class TableOrdersView(APIView):
 
 # =========================================================
 # GET ACTIVE ORDERS FOR RESTAURANT
-# FIX V2: Added restaurant ownership check
 # =========================================================
 class RestaurantActiveOrdersView(APIView):
     permission_classes = [IsAdminRole]

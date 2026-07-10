@@ -38,8 +38,10 @@ class User(AbstractBaseUser, PermissionsMixin):
     created_at  = models.DateTimeField(auto_now_add=True)
 
     # Admin-only: linked restaurant
-    restaurant_name = models.CharField(max_length=100, blank=True)
-    restaurant_id   = models.IntegerField(null=True, blank=True)
+    restaurant_name    = models.CharField(max_length=100, blank=True)
+    restaurant_phone   = models.CharField(max_length=10, blank=True)
+    restaurant_address = models.CharField(max_length=255, blank=True)
+    restaurant_id      = models.IntegerField(null=True, blank=True)
 
     objects = UserManager()
 

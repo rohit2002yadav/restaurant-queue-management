@@ -6,7 +6,7 @@ from rest_framework.test import APITestCase
 
 from restaurants.models import Restaurant, TableUnit
 from .models import Customer, QueueEntry, TableAssignment
-from .services import join_queue_service, recalculate_wait_times
+from .services import join_queue_service, recalculate_wait_times, seat_customer_service
 from .tasks import check_no_shows
 
 
@@ -295,6 +295,54 @@ class QueueWorkflowTests(APITestCase):
         self.assertEqual(entry.status, 'no_show')
         self.assertEqual(table.status, 'available')
         self.assertFalse(assignment.is_active)
+
+    def test_seat_customer_transitions_called_to_seated(self):
+        table = TableUnit.objects.create(
+            restaurant=self.restaurant,
+            table_number='T2',
+            capacity=2,
+            status='occupied',
+        )
+        token = join_queue_service(self.join_payload(phone='9876543231'))['token']
+        table.status = 'available'
+        table.save(update_fields=['status'])
+
+        entry = QueueEntry.objects.get(token_number=token)
+        self.client.force_authenticate(user=self.staff_user)
+
+        # First call the customer
+        self.client.post(reverse('call-customer'), {'queue_entry_id': entry.id}, format='json')
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, 'called')
+        self.assertIsNotNone(entry.expires_at)
+
+        # Now seat the customer
+        response = self.client.post(
+            reverse('seat-customer'),
+            {'queue_entry_id': entry.id},
+            format='json',
+        )
+        entry.refresh_from_db()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(entry.status, 'seated')
+        self.assertIsNotNone(entry.seated_at)
+        self.assertIsNone(entry.expires_at)  # no-show timer cleared
+
+    def test_seat_customer_rejects_non_called_entry(self):
+        customer = self.create_customer(phone='9876543232', name='Waiting Guest')
+        TableUnit.objects.create(
+            restaurant=self.restaurant, table_number='T2', capacity=2, status='occupied',
+        )
+        entry = QueueEntry.objects.create(
+            restaurant=self.restaurant, customer=customer,
+            token_number='T-099', party_size=2, status='waiting',
+        )
+        self.client.force_authenticate(user=self.staff_user)
+        response = self.client.post(
+            reverse('seat-customer'), {'queue_entry_id': entry.id}, format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class RestaurantIsolationTests(APITestCase):

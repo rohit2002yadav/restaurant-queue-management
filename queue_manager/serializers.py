@@ -111,6 +111,7 @@ class QueueEntrySerializer(serializers.ModelSerializer):
             'priority',
             'status',
             'joined_at',
+            'called_at',
             'estimated_wait_mins',
             'special_request',
         ]
@@ -147,11 +148,20 @@ class TableAssignmentSerializer(serializers.ModelSerializer):
         source='table_unit.capacity',
         read_only=True
     )
+    entry_status = serializers.CharField(
+        source='queue_entry.status',
+        read_only=True
+    )
+    queue_entry_id = serializers.IntegerField(
+        source='queue_entry.id',
+        read_only=True
+    )
 
     class Meta:
         model = TableAssignment
         fields = [
             'id',
+            'queue_entry_id',
             'token_number',
             'customer_name',
             'customer_phone',
@@ -160,4 +170,5 @@ class TableAssignmentSerializer(serializers.ModelSerializer):
             'table_capacity',
             'assigned_at',
             'is_active',
+            'entry_status',
         ]
