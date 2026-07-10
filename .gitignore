@@ -1,16 +1,39 @@
+# Python
 venv/
-.env
-.env.local
 __pycache__/
 *.pyc
+*.pyo
+
+# Environment
+.env
+.env.local
+
+# Database
 db.sqlite3
 *.sqlite3
 test.sqlite3
+
+# Logs
+*.log
+logs/*.log
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Backup / data dumps
+backup_*.json
+
+# IDE
 .vscode/
 .idea/
-*.log
-node_modules/
+
+# OS
 .DS_Store
-celerybeat-schedule
-logs/*.log
+Thumbs.db
+
+# Node (if frontend is in same repo)
+node_modules/
+
+# Dev chat logs
 q-dev-chat-*.md
