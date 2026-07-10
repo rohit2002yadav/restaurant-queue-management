@@ -28,6 +28,10 @@ A full-stack virtual queue management system for restaurants. Customers join a q
 |---|---|---|
 | ![Login](docs/screenshots/login.png) | ![Register](docs/screenshots/register.png) | ![OTP](docs/screenshots/otp.png) |
 
+| Landing | Customer Home | Admin Dashboard (Alt) |
+|---|---|---|
+| ![Landing](docs/screenshots/landing.png) | ![Customer Home](docs/screenshots/customer-home.png) | ![Admin Dashboard](docs/screenshots/admin-dashboard-2.png) |
+
 ---
 
 ## 🧩 Problem Statement
